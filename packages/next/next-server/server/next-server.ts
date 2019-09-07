@@ -77,6 +77,7 @@ export default class Server {
     canonicalBase: string
     documentMiddlewareEnabled: boolean
     dev?: boolean
+    suspenseSSR: boolean
   }
   private compression?: Middleware
   router: Router
@@ -124,6 +125,7 @@ export default class Server {
       staticMarkup,
       buildId: this.buildId,
       generateEtags,
+      suspenseSSR: this.nextConfig.experimental.suspenseSSR,
     }
 
     // Only the `publicRuntimeConfig` key is exposed to the client side

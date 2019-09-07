@@ -148,6 +148,7 @@ type RenderOpts = {
   App: AppType
   ErrorDebug?: React.ComponentType<{ error: Error }>
   ampValidator?: (html: string, pathname: string) => Promise<void>
+  suspenseSSR: boolean
 }
 
 function renderDocument(
@@ -252,6 +253,7 @@ export async function renderToHTML(
     buildManifest,
     reactLoadableManifest,
     ErrorDebug,
+    suspenseSSR,
   } = renderOpts
 
   await Loadable.preloadAll() // Make sure all dynamic imports are loaded
@@ -339,18 +341,27 @@ export async function renderToHTML(
 
   const reactLoadableModules: string[] = []
 
+  const SuspenseContainer =
+    suspenseSSR === true
+      ? ({ children }: any) => (
+          <React.Suspense fallback="Loading...">{children}</React.Suspense>
+        )
+      : ({ children }: any) => children
+
   const AppContainer = ({ children }: any) => (
-    <RouterContext.Provider value={router}>
-      <DataManagerContext.Provider value={dataManager}>
-        <AmpStateContext.Provider value={ampState}>
-          <LoadableContext.Provider
-            value={moduleName => reactLoadableModules.push(moduleName)}
-          >
-            {children}
-          </LoadableContext.Provider>
-        </AmpStateContext.Provider>
-      </DataManagerContext.Provider>
-    </RouterContext.Provider>
+    <SuspenseContainer>
+      <RouterContext.Provider value={router}>
+        <DataManagerContext.Provider value={dataManager}>
+          <AmpStateContext.Provider value={ampState}>
+            <LoadableContext.Provider
+              value={moduleName => reactLoadableModules.push(moduleName)}
+            >
+              {children}
+            </LoadableContext.Provider>
+          </AmpStateContext.Provider>
+        </DataManagerContext.Provider>
+      </RouterContext.Provider>
+    </SuspenseContainer>
   )
 
   try {

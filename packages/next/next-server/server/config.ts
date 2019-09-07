@@ -41,6 +41,7 @@ const defaultConfig: { [key: string]: any } = {
     granularChunks: false,
     publicDirectory: false,
     modern: false,
+    suspenseSSR: false,
   },
   future: {
     excludeDefaultMomentLocales: false,
