@@ -23,6 +23,7 @@ import { DataManagerContext } from '../lib/data-manager-context'
 import { LoadableContext } from '../lib/loadable-context'
 import { RouterContext } from '../lib/router-context'
 import { DataManager } from '../lib/data-manager'
+import { DocumentContext } from '../lib/document-context'
 import { getPageFiles, BuildManifest } from './get-page-files'
 import { AmpStateContext } from '../lib/amp-context'
 import optimizeAmp from './optimize-amp'
@@ -205,40 +206,52 @@ function renderDocument(
     devFiles: string[]
   }
 ): string {
+  const allDocProps = {
+    __NEXT_DATA__: {
+      dataManager: dataManagerData,
+      props, // The result of getInitialProps
+      page: pathname, // The rendered page
+      query, // querystring parsed / passed by the user
+      buildId, // buildId is used to facilitate caching of page bundles, we send it to the client so that pageloader knows where to load bundles
+      assetPrefix: assetPrefix === '' ? undefined : assetPrefix, // send assetPrefix to the client side when configured, otherwise don't sent in the resulting HTML
+      runtimeConfig, // runtimeConfig if provided, otherwise don't sent in the resulting HTML
+      nextExport, // If this is a page exported by `next export`
+      autoExport, // If this is an auto exported page
+      skeleton, // If this is a skeleton page for experimentalPrerender
+      dynamicIds:
+        dynamicImportsIds.length === 0 ? undefined : dynamicImportsIds,
+      err: err ? serializeError(dev, err) : undefined, // Error if one happened, otherwise don't sent in the resulting HTML
+    },
+    dangerousAsPath,
+    canonicalBase,
+    ampPath,
+    inAmpMode,
+    isDevelopment: !!dev,
+    hasCssMode,
+    hybridAmp,
+    staticMarkup,
+    devFiles,
+    files,
+    dynamicImports,
+    assetPrefix,
+    ...docProps,
+  }
   return (
     '<!DOCTYPE html>' +
     renderToStaticMarkup(
       <AmpStateContext.Provider value={ampState}>
-        <Document
-          __NEXT_DATA__={{
-            dataManager: dataManagerData,
-            props, // The result of getInitialProps
-            page: pathname, // The rendered page
-            query, // querystring parsed / passed by the user
-            buildId, // buildId is used to facilitate caching of page bundles, we send it to the client so that pageloader knows where to load bundles
-            assetPrefix: assetPrefix === '' ? undefined : assetPrefix, // send assetPrefix to the client side when configured, otherwise don't sent in the resulting HTML
-            runtimeConfig, // runtimeConfig if provided, otherwise don't sent in the resulting HTML
-            nextExport, // If this is a page exported by `next export`
-            autoExport, // If this is an auto exported page
-            skeleton, // If this is a skeleton page for experimentalPrerender
-            dynamicIds:
-              dynamicImportsIds.length === 0 ? undefined : dynamicImportsIds,
-            err: err ? serializeError(dev, err) : undefined, // Error if one happened, otherwise don't sent in the resulting HTML
+        <DocumentContext.Provider
+          value={{
+            _documentProps: allDocProps,
+            // In dev we invalidate the cache by appending a timestamp to the resource URL.
+            // This is a workaround to fix https://github.com/zeit/next.js/issues/5860
+            // TODO: remove this workaround when https://bugs.webkit.org/show_bug.cgi?id=187726 is fixed.
+            _devOnlyInvalidateCacheQueryString:
+              process.env.NODE_ENV !== 'production' ? '?ts=' + Date.now() : '',
           }}
-          dangerousAsPath={dangerousAsPath}
-          canonicalBase={canonicalBase}
-          ampPath={ampPath}
-          inAmpMode={inAmpMode}
-          isDevelopment={!!dev}
-          hasCssMode={hasCssMode}
-          hybridAmp={hybridAmp}
-          staticMarkup={staticMarkup}
-          devFiles={devFiles}
-          files={files}
-          dynamicImports={dynamicImports}
-          assetPrefix={assetPrefix}
-          {...docProps}
-        />
+        >
+          <Document {...allDocProps} />
+        </DocumentContext.Provider>
       </AmpStateContext.Provider>
     )
   )
