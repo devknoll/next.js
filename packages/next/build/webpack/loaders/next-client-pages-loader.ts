@@ -12,6 +12,12 @@ const nextClientPagesLoader: loader.Loader = function() {
   const stringifiedPage = JSON.stringify(page)
 
   return `
+    (window.next=window.next||[]).push(function(next) {
+      next.page(${stringifiedPage}, () => require(${stringifiedAbsolutePagePath}))
+    })
+  `
+
+  return `
     (window.__NEXT_P=window.__NEXT_P||[]).push([${stringifiedPage}, function() {
       var mod = require(${stringifiedAbsolutePagePath})
       if(module.hot) {

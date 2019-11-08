@@ -10,6 +10,7 @@ import webpack from 'webpack'
 import {
   DOT_NEXT_ALIAS,
   NEXT_PROJECT_ROOT,
+  NEXT_PROJECT_ROOT_DIST_BOOTSTRAP,
   NEXT_PROJECT_ROOT_DIST_CLIENT,
   PAGES_DIR_ALIAS,
 } from '../lib/constants'
@@ -158,7 +159,7 @@ export default async function getBaseWebpackConfig(
           path.relative(
             dir,
             path.join(
-              NEXT_PROJECT_ROOT_DIST_CLIENT,
+              NEXT_PROJECT_ROOT_DIST_BOOTSTRAP,
               dev ? `next-dev.js` : 'next.js'
             )
           ),
