@@ -1,19 +1,27 @@
 /* global document, window */
-import mitt from '../next-server/lib/mitt'
+import mitt, { MittEmitter } from '../next-server/lib/mitt'
 
-function supportsPreload(el) {
-  try {
-    return el.relList.supports('preload')
-  } catch {
-    return false
+declare global {
+  interface Window {
+    __BUILD_MANIFEST?: any
+    __BUILD_MANIFEST_CB?: any
   }
 }
 
-const hasPreload = supportsPreload(document.createElement('link'))
+type NormalizedRoute = string & { __normalizedRoute: void }
 
-function preloadScript(url) {
+const hasPreload = (() => {
+  try {
+    return document.createElement('link').relList.supports('preload')
+  } catch {
+    return false
+  }
+})()
+
+function preloadScript(url: string) {
   const link = document.createElement('link')
   link.rel = 'preload'
+  // @ts-ignore
   link.crossOrigin = process.crossOrigin
   link.href = encodeURI(url)
   link.as = 'script'
@@ -21,13 +29,21 @@ function preloadScript(url) {
 }
 
 export default class PageLoader {
-  constructor(buildId, assetPrefix) {
+  readonly buildId: string
+  readonly assetPrefix: string
+  readonly pageCache: Map<NormalizedRoute, any>
+  readonly pageRegisterEvents: MittEmitter
+  readonly loadingRoutes: Map<NormalizedRoute, any>
+  readonly promisedBuildManifest?: Promise<{ [key: string]: string[] }>
+
+  constructor(buildId: string, assetPrefix: string) {
     this.buildId = buildId
     this.assetPrefix = assetPrefix
 
-    this.pageCache = {}
+    this.pageCache = new Map()
     this.pageRegisterEvents = mitt()
-    this.loadingRoutes = {}
+    this.loadingRoutes = new Map()
+
     if (process.env.__NEXT_GRANULAR_CHUNKS) {
       this.promisedBuildManifest = new Promise(resolve => {
         if (window.__BUILD_MANIFEST) {
@@ -42,33 +58,38 @@ export default class PageLoader {
   }
 
   // Returns a promise for the dependencies for a particular route
-  getDependencies(route) {
-    return this.promisedBuildManifest.then(
-      man => (man[route] && man[route].map(url => `/_next/${url}`)) || []
-    )
+  getDependencies(route: NormalizedRoute) {
+    return this.promisedBuildManifest
+      ? this.promisedBuildManifest.then(
+          man => (man[route] && man[route].map(url => `/_next/${url}`)) || []
+        )
+      : Promise.resolve([])
   }
 
-  normalizeRoute(route) {
+  normalizeRoute(route: string): NormalizedRoute {
     if (route[0] !== '/') {
       throw new Error(`Route name should start with a "/", got "${route}"`)
     }
     route = route.replace(/\/index$/, '/')
 
-    if (route === '/') return route
-    return route.replace(/\/$/, '')
+    return route === '/'
+      ? (route as NormalizedRoute)
+      : (route.replace(/\/$/, '') as NormalizedRoute)
   }
 
-  loadPage(route) {
-    return this.loadPageScript(route).then(v => v.page)
+  async loadPage(route: string) {
+    const v = await this.loadPageScript(route)
+    return v.page
   }
 
-  loadPageScript(route) {
-    route = this.normalizeRoute(route)
+  loadPageScript(maybeRoute: string): Promise<{ page: any; mod: any }> {
+    const route = this.normalizeRoute(maybeRoute)
 
     return new Promise((resolve, reject) => {
+      // @ts-ignore
       const fire = ({ error, page, mod }) => {
         this.pageRegisterEvents.off(route, fire)
-        delete this.loadingRoutes[route]
+        this.loadingRoutes.delete(route)
 
         if (error) {
           reject(error)
@@ -78,7 +99,7 @@ export default class PageLoader {
       }
 
       // If there's a cached version of the page, let's use it.
-      const cachedPage = this.pageCache[route]
+      const cachedPage = this.pageCache.get(route)
       if (cachedPage) {
         const { error, page, mod } = cachedPage
         error ? reject(error) : resolve({ page, mod })
@@ -94,7 +115,7 @@ export default class PageLoader {
         return
       }
 
-      if (!this.loadingRoutes[route]) {
+      if (!this.loadingRoutes.has(route)) {
         if (process.env.__NEXT_GRANULAR_CHUNKS) {
           this.getDependencies(route).then(deps => {
             deps.forEach(d => {
@@ -106,18 +127,18 @@ export default class PageLoader {
               }
             })
             this.loadRoute(route)
-            this.loadingRoutes[route] = true
+            this.loadingRoutes.set(route, true)
           })
         } else {
           this.loadRoute(route)
-          this.loadingRoutes[route] = true
+          this.loadingRoutes.set(route, true)
         }
       }
     })
   }
 
-  async loadRoute(route) {
-    route = this.normalizeRoute(route)
+  async loadRoute(maybeRoute: string) {
+    const route = this.normalizeRoute(maybeRoute)
     let scriptRoute = route === '/' ? '/index.js' : `${route}.js`
 
     const url = `${this.assetPrefix}/_next/static/${encodeURIComponent(
@@ -126,7 +147,7 @@ export default class PageLoader {
     this.loadScript(url, route, true)
   }
 
-  loadScript(url, route, isPage) {
+  loadScript(url: string, route: NormalizedRoute, isPage: boolean) {
     const script = document.createElement('script')
     if (process.env.__NEXT_MODERN_BUILD && 'noModule' in script) {
       script.type = 'module'
@@ -134,10 +155,12 @@ export default class PageLoader {
       // dependencies already have it added during build manifest creation
       if (isPage) url = url.replace(/\.js$/, '.module.js')
     }
+    // @ts-ignore
     script.crossOrigin = process.crossOrigin
     script.src = encodeURI(url)
     script.onerror = () => {
       const error = new Error(`Error loading script ${url}`)
+      // @ts-ignore
       error.code = 'PAGE_LOAD_ERROR'
       this.pageRegisterEvents.emit(route, { error })
     }
@@ -145,15 +168,16 @@ export default class PageLoader {
   }
 
   // This method if called by the route code.
-  registerPage(route, regFn) {
+  registerPage(maybeRoute: string, regFn: any) {
+    const route = this.normalizeRoute(maybeRoute)
     const register = () => {
       try {
         const mod = regFn()
         const pageData = { page: mod.default || mod, mod }
-        this.pageCache[route] = pageData
+        this.pageCache.set(route, pageData)
         this.pageRegisterEvents.emit(route, pageData)
       } catch (error) {
-        this.pageCache[route] = { error }
+        this.pageCache.set(route, { error })
         this.pageRegisterEvents.emit(route, { error })
       }
     }
@@ -161,17 +185,20 @@ export default class PageLoader {
     if (process.env.NODE_ENV !== 'production') {
       // Wait for webpack to become idle if it's not.
       // More info: https://github.com/zeit/next.js/pull/1511
+      // @ts-ignore
       if (module.hot && module.hot.status() !== 'idle') {
         console.log(
           `Waiting for webpack to become "idle" to initialize the page: "${route}"`
         )
 
-        const check = status => {
+        const check = (status: unknown) => {
           if (status === 'idle') {
+            // @ts-ignore
             module.hot.removeStatusHandler(check)
             register()
           }
         }
+        // @ts-ignore
         module.hot.status(check)
         return
       }
@@ -180,8 +207,8 @@ export default class PageLoader {
     register()
   }
 
-  async prefetch(route, isDependency) {
-    route = this.normalizeRoute(route)
+  async prefetch(maybeRoute: string, isDependency: boolean) {
+    const route = this.normalizeRoute(maybeRoute)
     let scriptRoute = `${route === '/' ? '/index' : route}.js`
 
     if (
@@ -210,6 +237,7 @@ export default class PageLoader {
 
     // Inspired by quicklink, license: https://github.com/GoogleChromeLabs/quicklink/blob/master/LICENSE
     let cn
+    // @ts-ignore
     if ((cn = navigator.connection)) {
       // Don't prefetch if the user is on 2G or if Save-Data is enabled.
       if ((cn.effectiveType || '').indexOf('2g') !== -1 || cn.saveData) {
