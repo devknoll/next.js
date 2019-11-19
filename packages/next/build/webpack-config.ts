@@ -299,6 +299,20 @@ export default async function getBaseWebpackConfig(
           chunks: 'all',
           test: /[\\/]node_modules[\\/](react|react-dom|scheduler|use-subscription)[\\/]/,
         },
+        bootload: {
+          name: 'bootload',
+          chunks: 'all',
+          test: (mod, chunk) => {
+            for (const chunk of mod.getChunks()) {
+              if (chunk.name && chunk.name === 'static/runtime/main.js') {
+                return true
+              }
+            }
+            return false
+          },
+          enforce: true,
+          priority: 90,
+        },
       },
     },
     prodGranular: {
