@@ -442,17 +442,24 @@ export async function renderToHTML(
 
   const reactLoadableModules: string[] = []
 
-  const AppContainer = ({ children }: any) => (
-    <RouterContext.Provider value={router}>
-      <AmpStateContext.Provider value={ampState}>
-        <LoadableContext.Provider
-          value={moduleName => reactLoadableModules.push(moduleName)}
-        >
-          {children}
-        </LoadableContext.Provider>
-      </AmpStateContext.Provider>
-    </RouterContext.Provider>
-  )
+  const AppContainer = ({ children }: any) => {
+    const content = (
+      <RouterContext.Provider value={router}>
+        <AmpStateContext.Provider value={ampState}>
+          <LoadableContext.Provider
+            value={moduleName => reactLoadableModules.push(moduleName)}
+          >
+            {children}
+          </LoadableContext.Provider>
+        </AmpStateContext.Provider>
+      </RouterContext.Provider>
+    )
+    return process.env.__NEXT_REACT_MODE !== 'legacy' ? (
+      <React.Suspense fallback={null}>{content}</React.Suspense>
+    ) : (
+      content
+    )
+  }
 
   try {
     props = await loadGetInitialProps(App, {

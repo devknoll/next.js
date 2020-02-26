@@ -1,6 +1,5 @@
 /* global location */
 import React from 'react'
-import ReactDOM from 'react-dom'
 import initHeadManager from './head-manager'
 import { createRouter, makePublicRouterInstance } from 'next/router'
 import mitt from '../next-server/lib/mitt'
@@ -11,8 +10,7 @@ import { HeadManagerContext } from '../next-server/lib/head-manager-context'
 import { RouterContext } from '../next-server/lib/router-context'
 import { parse as parseQs, stringify as stringifyQs } from 'querystring'
 import { isDynamicRoute } from '../next-server/lib/router/utils/is-dynamic'
-
-/// <reference types="react-dom/experimental" />
+import bootstrap from './bootstrap'
 
 if (!('finally' in Promise.prototype)) {
   // eslint-disable-next-line no-extend-native
@@ -58,7 +56,6 @@ window.__NEXT_P = []
 window.__NEXT_P.push = register
 
 const updateHead = initHeadManager()
-const appElement = document.getElementById('__next')
 
 let lastAppProps
 let webpackHMR
@@ -283,33 +280,21 @@ export async function renderError(props) {
   await doRender({ ...props, err, Component: ErrorComponent, props: initProps })
 }
 
-// If hydrate does not exist, eg in preact.
-let isInitialRender = typeof ReactDOM.hydrate === 'function'
-let reactRoot = null
-function renderReactElement(reactEl, domEl) {
-  if (process.env.__NEXT_REACT_MODE !== 'legacy') {
-    if (!reactRoot) {
-      const opts = { hydrate: true }
-      reactRoot =
-        process.env.__NEXT_REACT_MODE === 'concurrent'
-          ? ReactDOM.createRoot(domEl, opts)
-          : ReactDOM.createBlockingRoot(domEl, opts)
+function renderReactElement(reactEl) {
+  bootstrap.render(isInitialRender => {
+    let callback = () => {}
+    if (process.env.__NEXT_REACT_MODE === 'legacy') {
+      // mark start of hydrate/render
+      if (ST) {
+        performance.mark('beforeRender')
+      }
+      callback = isInitialRender ? markHydrateComplete : markRenderComplete
     }
-    reactRoot.render(reactEl)
-  } else {
-    // mark start of hydrate/render
-    if (ST) {
-      performance.mark('beforeRender')
+    return {
+      element: reactEl,
+      callback,
     }
-
-    // The check for `.hydrate` is there to support React alternatives like preact
-    if (isInitialRender) {
-      ReactDOM.hydrate(reactEl, domEl, markHydrateComplete)
-      isInitialRender = false
-    } else {
-      ReactDOM.render(reactEl, domEl, markRenderComplete)
-    }
-  }
+  })
 
   if (onPerfEntry && ST) {
     try {
@@ -459,8 +444,7 @@ async function doRender({ App, Component, props, err }) {
       <React.StrictMode>{elem}</React.StrictMode>
     ) : (
       elem
-    ),
-    appElement
+    )
   )
 
   emitter.emit('after-reactdom-render', { Component, ErrorComponent, appProps })
