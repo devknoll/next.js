@@ -781,11 +781,11 @@ export default class Server {
         url.match(/^\/_next\//) ||
         (this.hasStaticDir && url.match(/^\/static\//))
       ) {
-        return this.handleRequest(req, res, parsedUrl)
+        return await this.handleRequest(req, res, parsedUrl)
       }
 
       if (isBlockedPage(pathname)) {
-        return this.render404(req, res, parsedUrl)
+        return await this.render404(req, res, parsedUrl)
       }
 
       return await this.renderInternal(req, res, pathname, query)
@@ -1274,7 +1274,7 @@ export default class Server {
     const url: any = req.url
     const { pathname, query } = parsedUrl ? parsedUrl : parseUrl(url, true)
     res.statusCode = 404
-    return this.renderError(null, req, res, pathname!, query)
+    return await this.renderError(null, req, res, pathname!, query)
   }
 
   public async serveStatic(
@@ -1284,23 +1284,23 @@ export default class Server {
     parsedUrl?: UrlWithParsedQuery
   ): Promise<void> {
     if (!this.isServeableUrl(path)) {
-      return this.render404(req, res, parsedUrl)
+      return await this.render404(req, res, parsedUrl)
     }
 
     if (!(req.method === 'GET' || req.method === 'HEAD')) {
       res.statusCode = 405
       res.setHeader('Allow', ['GET', 'HEAD'])
-      return this.renderError(null, req, res, path)
+      return await this.renderError(null, req, res, path)
     }
 
     try {
       await serveStatic(req, res, path)
     } catch (err) {
       if (err.code === 'ENOENT' || err.statusCode === 404) {
-        this.render404(req, res, parsedUrl)
+        await this.render404(req, res, parsedUrl)
       } else if (err.statusCode === 412) {
         res.statusCode = 412
-        return this.renderError(err, req, res, path)
+        return await this.renderError(err, req, res, path)
       } else {
         throw err
       }
