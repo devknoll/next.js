@@ -65,3 +65,5 @@ export function isResSent(res: NextHttpResponse) {
   }
   return res.finished || res.headersSent
 }
+
+export function dummy() {}
