@@ -7,6 +7,7 @@ import {
   CLIENT_STATIC_FILES_PATH,
   CLIENT_STATIC_FILES_RUNTIME_MAIN,
   CLIENT_STATIC_FILES_RUNTIME_POLYFILLS,
+  CLIENT_STATIC_FILES_RUNTIME_BOOTSTRAP,
   IS_BUNDLED_PAGE_REGEX,
   ROUTE_NAME_REGEX,
 } from '../../../next-server/lib/constants'
@@ -83,6 +84,13 @@ export default class BuildManifestPlugin {
         )
         const polyfillFiles: string[] = polyfillChunk ? polyfillChunk.files : []
 
+        const bootstrapChunk = chunks.find(
+          c => c.name === CLIENT_STATIC_FILES_RUNTIME_BOOTSTRAP
+        )
+        const bootstrapFiles: string[] = bootstrapChunk
+          ? bootstrapChunk.files
+          : []
+
         for (const filePath of Object.keys(compilation.assets)) {
           const path = filePath.replace(/\\/g, '/')
           if (/^static\/development\/dll\//.test(path)) {
@@ -134,8 +142,9 @@ export default class BuildManifestPlugin {
           assetMap.pages['/'] = assetMap.pages['/index']
         }
 
-        // Create a separate entry  for polyfills
+        // Create separate entries for polyfills and bootstrap
         assetMap.pages['/_polyfills'] = polyfillFiles
+        assetMap.pages['/_bootstrap'] = bootstrapFiles
 
         // Add the runtime build manifest file (generated later in this file)
         // as a dependency for the app. If the flag is false, the file won't be
