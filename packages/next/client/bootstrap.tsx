@@ -26,11 +26,17 @@ function bootstrap(): Bootstrapper {
     if (!renderToDOM) {
       if (process.env.__NEXT_REACT_MODE !== 'legacy') {
         const opts = { hydrate: true }
+        performance.mark('bootstrap_createRoot_start')
         const reactRoot =
           process.env.__NEXT_REACT_MODE === 'concurrent'
             ? ReactDOM.createRoot(container, opts)
             : ReactDOM.createBlockingRoot(container, opts)
-        renderToDOM = (_, children) => reactRoot.render(children)
+        performance.mark('bootstrap_createRoot_end')
+        renderToDOM = (_, children) => {
+          performance.mark('bootstrap_render_start')
+          reactRoot.render(children)
+          performance.mark('bootstrap_render_end')
+        }
         isInitialRender = true
       } else {
         isInitialRender = typeof ReactDOM.hydrate === 'function'
