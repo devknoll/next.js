@@ -23,6 +23,8 @@ export const CLIENT_STATIC_FILES_RUNTIME_PATH = `${CLIENT_STATIC_FILES_PATH}/${C
 export const CLIENT_STATIC_FILES_RUNTIME_MAIN = `${CLIENT_STATIC_FILES_RUNTIME_PATH}/main.js`
 // static/runtime/bootstrap.js
 export const CLIENT_STATIC_FILES_RUNTIME_BOOTSTRAP = `${CLIENT_STATIC_FILES_RUNTIME_PATH}/bootstrap.js`
+// static/runtime/react-refresh.js
+export const CLIENT_STATIC_FILES_RUNTIME_REACT_REFRESH = `${CLIENT_STATIC_FILES_RUNTIME_PATH}/react-refresh.js`
 // static/runtime/amp.js
 export const CLIENT_STATIC_FILES_RUNTIME_AMP = `${CLIENT_STATIC_FILES_RUNTIME_PATH}/amp.js`
 // static/runtime/webpack.js
@@ -36,3 +38,5 @@ export const ROUTE_NAME_REGEX = /^static[/\\][^/\\]+[/\\]pages[/\\](.*)\.js$/
 export const SERVERLESS_ROUTE_NAME_REGEX = /^pages[/\\](.*)\.js$/
 export const TEMPORARY_REDIRECT_STATUS = 307
 export const PERMANENT_REDIRECT_STATUS = 308
+export const STATIC_PROPS_ID = '__N_SSG'
+export const SERVER_PROPS_ID = '__N_SSP'

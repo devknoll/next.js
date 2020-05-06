@@ -1,20 +1,28 @@
 /* global location */
-import React from 'react'
-import initHeadManager from './head-manager'
 import { createRouter, makePublicRouterInstance } from 'next/router'
-import mitt from '../next-server/lib/mitt'
-import { loadGetInitialProps, getURL, ST } from '../next-server/lib/utils'
-import PageLoader from './page-loader'
-import * as envConfig from '../next-server/lib/runtime-config'
-import { HeadManagerContext } from '../next-server/lib/head-manager-context'
-import { RouterContext } from '../next-server/lib/router-context'
 import { parse as parseQs, stringify as stringifyQs } from 'querystring'
+import React from 'react'
+import ReactDOM from 'react-dom'
+import { HeadManagerContext } from '../next-server/lib/head-manager-context'
+import mitt from '../next-server/lib/mitt'
+import { RouterContext } from '../next-server/lib/router-context'
 import { isDynamicRoute } from '../next-server/lib/router/utils/is-dynamic'
 import bootstrap from './bootstrap'
+import * as envConfig from '../next-server/lib/runtime-config'
+import { getURL, loadGetInitialProps, ST } from '../next-server/lib/utils'
+import initHeadManager from './head-manager'
+import PageLoader from './page-loader'
+import {
+  observeLargestContentfulPaint,
+  observeLayoutShift,
+  observePaint,
+} from './performance-relayer'
+
+/// <reference types="react-dom/experimental" />
 
 if (!('finally' in Promise.prototype)) {
   // eslint-disable-next-line no-extend-native
-  Promise.prototype.finally = require('finally-polyfill')
+  Promise.prototype.finally = require('next/dist/build/polyfills/finally-polyfill.min')
 }
 
 const data = JSON.parse(document.getElementById('__NEXT_DATA__').textContent)
@@ -92,7 +100,7 @@ class Container extends React.Component {
       (isFallback ||
         (data.nextExport &&
           (isDynamicRoute(router.pathname) || location.search)) ||
-        (Component && Component.__N_SSG && location.search))
+        (props.__N_SSG && location.search))
     ) {
       // update query on mount for exported pages
       router.replace(
@@ -144,7 +152,18 @@ class Container extends React.Component {
   }
 
   render() {
-    return this.props.children
+    if (process.env.NODE_ENV === 'production') {
+      return this.props.children
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      if (process.env.__NEXT_FAST_REFRESH) {
+        const {
+          ReactDevOverlay,
+        } = require('@next/react-dev-overlay/lib/client')
+        return <ReactDevOverlay>{this.props.children}</ReactDevOverlay>
+      }
+      return this.props.children
+    }
   }
 }
 
@@ -158,15 +177,21 @@ export default async ({ webpackHMR: passedWebpackHMR } = {}) => {
   const { page: app, mod } = await pageLoader.loadPageScript('/_app')
   App = app
   if (mod && mod.unstable_onPerformanceData) {
-    onPerfEntry = function({ name, startTime, value, duration }) {
-      mod.unstable_onPerformanceData({ name, startTime, value, duration })
+    onPerfEntry = function({ name, startTime, value, duration, entryType }) {
+      mod.unstable_onPerformanceData({
+        name,
+        startTime,
+        value,
+        duration,
+        entryType,
+      })
     }
   }
 
   let initialErr = err
 
   try {
-    Component = await pageLoader.loadPage(page)
+    ;({ page: Component } = await pageLoader.loadPage(page))
 
     if (process.env.NODE_ENV !== 'production') {
       const { isValidElementType } = require('react-is')
@@ -235,16 +260,54 @@ export async function render(props) {
   }
 }
 
+let isInitialRender = typeof ReactDOM.hydrate === 'function'
 // This method handles all runtime and debug errors.
 // 404 and 500 errors are special kind of errors
 // and they are still handle via the main render method.
-export async function renderError(props) {
+export function renderError(props) {
   const { App, err } = props
 
   // In development runtime errors are caught by react-error-overlay
   // In production we catch runtime errors using componentDidCatch which will trigger renderError
   if (process.env.NODE_ENV !== 'production') {
-    return webpackHMR.reportRuntimeError(webpackHMR.prepareError(err))
+    if (process.env.__NEXT_FAST_REFRESH) {
+      const { getNodeError } = require('@next/react-dev-overlay/lib/client')
+      // Server-side runtime errors need to be re-thrown on the client-side so
+      // that the overlay is rendered.
+      if (isInitialRender) {
+        setTimeout(() => {
+          let error
+          try {
+            // Generate a new error object. We `throw` it because some browsers
+            // will set the `stack` when thrown, and we want to ensure ours is
+            // not overridden when we re-throw it below.
+            throw new Error(err.message)
+          } catch (e) {
+            error = e
+          }
+
+          error.name = err.name
+          error.stack = err.stack
+
+          const node = getNodeError(error)
+          throw node
+        })
+      }
+
+      // We need to render an empty <App> so that the `<ReactDevOverlay>` can
+      // render itself.
+      return doRender({
+        App: () => null,
+        props: {},
+        Component: () => null,
+        err: null,
+      })
+    }
+
+    // Legacy behavior:
+    return Promise.resolve(
+      webpackHMR.reportRuntimeError(webpackHMR.prepareError(err))
+    )
   }
   if (process.env.__NEXT_PLUGINS) {
     // eslint-disable-next-line
@@ -259,25 +322,28 @@ export async function renderError(props) {
 
   // Make sure we log the error to the console, otherwise users can't track down issues.
   console.error(err)
-
-  ErrorComponent = await pageLoader.loadPage('/_error')
-
-  // In production we do a normal render with the `ErrorComponent` as component.
-  // If we've gotten here upon initial render, we can use the props from the server.
-  // Otherwise, we need to call `getInitialProps` on `App` before mounting.
-  const AppTree = wrapApp(App)
-  const appCtx = {
-    Component: ErrorComponent,
-    AppTree,
-    router,
-    ctx: { err, pathname: page, query, asPath, AppTree },
-  }
-
-  const initProps = props.props
-    ? props.props
-    : await loadGetInitialProps(App, appCtx)
-
-  await doRender({ ...props, err, Component: ErrorComponent, props: initProps })
+  return pageLoader.loadPage('/_error').then(({ page: ErrorComponent }) => {
+    // In production we do a normal render with the `ErrorComponent` as component.
+    // If we've gotten here upon initial render, we can use the props from the server.
+    // Otherwise, we need to call `getInitialProps` on `App` before mounting.
+    const AppTree = wrapApp(App)
+    const appCtx = {
+      Component: ErrorComponent,
+      AppTree,
+      router,
+      ctx: { err, pathname: page, query, asPath, AppTree },
+    }
+    return Promise.resolve(
+      props.props ? props.props : loadGetInitialProps(App, appCtx)
+    ).then(initProps =>
+      doRender({
+        ...props,
+        err,
+        Component: ErrorComponent,
+        props: initProps,
+      })
+    )
+  })
 }
 
 function renderReactElement(reactEl) {
@@ -298,14 +364,9 @@ function renderReactElement(reactEl) {
 
   if (onPerfEntry && ST) {
     try {
-      const observer = new PerformanceObserver(list => {
-        list.getEntries().forEach(onPerfEntry)
-      })
-      // Start observing paint entry types.
-      observer.observe({
-        type: 'paint',
-        buffered: true,
-      })
+      observeLayoutShift(onPerfEntry)
+      observeLargestContentfulPaint(onPerfEntry)
+      observePaint(onPerfEntry)
     } catch (e) {
       window.addEventListener('load', () => {
         performance.getEntriesByType('paint').forEach(onPerfEntry)
@@ -325,7 +386,18 @@ function markHydrateComplete() {
     'beforeRender'
   )
   performance.measure('Next.js-hydration', 'beforeRender', 'afterHydrate')
+
   if (onPerfEntry) {
+    if (process.env.__NEXT_FID_POLYFILL) {
+      import('../next-server/lib/fid-measure')
+        .then(mod => {
+          mod.default(onPerfEntry)
+        })
+        .catch(err => {
+          console.error('Error measuring First Input Delay', err)
+        })
+    }
+
     performance.getEntriesByName('Next.js-hydration').forEach(onPerfEntry)
     performance.getEntriesByName('beforeRender').forEach(onPerfEntry)
   }
@@ -355,6 +427,9 @@ function markRenderComplete() {
       .forEach(onPerfEntry)
   }
   clearMarks()
+  ;['Next.js-route-change-to-render', 'Next.js-render'].forEach(measure =>
+    performance.clearMeasures(measure)
+  )
 }
 
 function clearMarks() {
@@ -364,12 +439,6 @@ function clearMarks() {
     'afterRender',
     'routeChange',
   ].forEach(mark => performance.clearMarks(mark))
-  ;[
-    'Next.js-before-hydration',
-    'Next.js-hydration',
-    'Next.js-route-change-to-render',
-    'Next.js-render',
-  ].forEach(measure => performance.clearMeasures(measure))
 }
 
 function AppContainer({ children }) {
